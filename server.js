@@ -25,6 +25,20 @@ async function connectToDatabase() {
 }
 connectToDatabase();
 
+// New route to get the count of signatures
+app.get("/count", async (req, res) => {
+    try {
+        const db = client.db("pledgeDB"); // Replace with your database name
+        const collection = db.collection("signatures"); // Replace with your collection name
+        const count = await collection.countDocuments();
+        res.json({ count });
+    } catch (error) {
+        console.error("Error fetching count:", error);
+        res.status(500).json({ error: "Unable to fetch count" });
+    }
+});
+
+// Existing route for submitting signatures
 app.post("/submit", async (req, res) => {
     console.log("Received data:", req.body); // Log incoming data
 
