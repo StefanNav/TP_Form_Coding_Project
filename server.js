@@ -8,40 +8,51 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const client = new MongoClient(process.env.MONGO_URI);
 
-// Enable CORS for all routes
-app.use(cors()); 
-app.use(express.json()); // Parse JSON request bodies
+// Global in-memory cache for the pledge count
+let cachedCount = 0;
 
-// Connect to MongoDB once when the server starts
+app.use(cors());
+app.use(express.json());
+
+// Connect to MongoDB once when the server starts and initialize the cached count
 async function connectToDatabase() {
     try {
         console.log("Attempting to connect to MongoDB...");
         await client.connect();
         console.log("Connected to MongoDB!");
+        await initializeCount();
     } catch (error) {
         console.error("Failed to connect to MongoDB:", error);
         process.exit(1); // Exit if there's an error connecting
     }
 }
+
+async function initializeCount() {
+    try {
+        const db = client.db("pledgeDB"); // Replace with your database name if different
+        const collection = db.collection("signatures"); // Replace with your collection name if different
+        cachedCount = await collection.countDocuments();
+        console.log(`Initialized count: ${cachedCount}`);
+    } catch (error) {
+        console.error("Error initializing count:", error);
+    }
+}
+
 connectToDatabase();
 
-// New route to get the count of signatures
-app.get("/count", async (req, res) => {
-    try {
-        const db = client.db("pledgeDB"); // Replace with your database name
-        const collection = db.collection("signatures"); // Replace with your collection name
-        const count = await collection.countDocuments();
-        res.json({ count });
-    } catch (error) {
-        console.error("Error fetching count:", error);
-        res.status(500).json({ error: "Unable to fetch count" });
-    }
+// Keep-alive endpoint for free-tier hosting (e.g., for UptimeRobot)
+app.get("/ping", (req, res) => {
+    res.send("pong");
 });
 
-// Existing route for submitting signatures
-app.post("/submit", async (req, res) => {
-    console.log("Received data:", req.body); // Log incoming data
+// Updated /count endpoint that returns the cached value immediately
+app.get("/count", (req, res) => {
+    res.json({ count: cachedCount });
+});
 
+// Updated /submit endpoint that uses the in-memory cache
+app.post("/submit", async (req, res) => {
+    console.log("Received data:", req.body);
     const { firstName, lastName, email } = req.body;
 
     try {
@@ -54,14 +65,16 @@ app.post("/submit", async (req, res) => {
             return res.status(400).json({ message: "Your signature has already been added!" });
         }
 
-        // Insert new signature
+        // Insert the new signature
         await collection.insertOne({ firstName, lastName, email, date: new Date() });
 
-        // Return success message and new count
-        const newCount = await collection.countDocuments();
-        res.status(200).json({ message: "Thank you for signing the pledge!", count: newCount });
+        // Increment the cached count
+        cachedCount++;
+
+        // Return the updated count
+        res.status(200).json({ message: "Thank you for signing the pledge!", count: cachedCount });
     } catch (error) {
-        console.error(error);
+        console.error("Error submitting signature:", error);
         res.status(500).json({ message: "An error occurred. Please try again later." });
     }
 });
@@ -69,3 +82,4 @@ app.post("/submit", async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
+
